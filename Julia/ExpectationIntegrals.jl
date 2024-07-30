@@ -94,7 +94,7 @@ function getApproxProb(n, k, l)
     end
 end 
 
-function makeProbMat(n)
+function makeProbMat(n, f)
     probMat = zeros(n-1, n-1)
     for i in 1:n-1
         for j in 1:i
@@ -106,7 +106,7 @@ function makeProbMat(n)
     return probMat
 end
 
-#Now I'm gonna use the alternative form of the expectation integrals to compute the probabilities and compare performance.
+
 
 function approxProbMat(n) 
 
@@ -120,4 +120,33 @@ function approxProbMat(n)
     end
 
     return probMat
+end 
+
+
+#Now I'm gonna use the alternative form of the expectation integrals to compute the probabilities and compare performance.
+
+using SimplicialCubature #needed to integrate on the simplex
+
+S(n) = CanonicalSimplex(n)
+get_rates(n) = 1/2 .* collect(n:-1:2) .- 1/2
+
+function ratioDensity(x)
+    n = length(x)+1
+    rates = get_rates(n+1) 
+    diffs = rates[1:n-1] .- rates[n].*ones(n-1)
+    return prod(rates)/(rates[n]+dot(reverse(x), diffs))^n
+end
+
+function calculateExpectation(g, n)
+
+    function f(x)
+        return g(x) * ratioDensity(x)
+    end
+
+    I = integrateOnSimplex(f, S(n), maxEvals=1e8, tol=1e-6)
+    return factorial(n+1)*I.integral
+end 
+
+function ratioCorrelation(n, i, j)
+    return calculateExpectation(x -> x[i-1]*x[j-1], n-1)
 end 
