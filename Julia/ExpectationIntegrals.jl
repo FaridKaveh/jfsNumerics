@@ -11,21 +11,21 @@ f_approx(u,p) = u[1]*u[2]*prod(exp.(-u .* p[1:2]))/(sum(u)+p[3])^2
 
 g_approx(u,p) = u[1]^2 * prod(exp.(-u .* p[1]))/(sum(u)+p[2])^2
 
-function solvef(p)
+function solvef(p, reltol)
 
     domain = (zeros(3), [Inf, Inf, Inf])
     problem = IntegralProblem(f, domain, p)
     
-    sol = solve(problem, HCubatureJL(); reltol=1e-6, abstol=1e-6)
+    sol = solve(problem, HCubatureJL(); reltol=reltol)
     
     return sol.u
 end 
 
-function solveg(p)
+function solveg(p, reltol)
     domain = (zeros(2), [Inf, Inf])
     problem = IntegralProblem(g, domain, p)
 
-    sol = solve(problem, HCubatureJL(); reltol=1e-6, abstol=1e-6)
+    sol = solve(problem, HCubatureJL(); reltol=reltol)
 
     return sol.u
 end 
@@ -62,10 +62,10 @@ function J(n, k, l)
 
     if k == l
         param_tuples = [[(k-1)/2, -eig_sys.values[i]] for i in 1:length(eig_sys.values)]
-        diagIntegrals = solveg.(param_tuples)
+        diagIntegrals = solveg.(param_tuples, 1e-8)
     else
         param_triples = [[(k-1)/2, (l-1)/2, -eig_sys.values[i]] for i in 1:length(eig_sys.values)]
-        diagIntegrals = solvef.(param_triples)
+        diagIntegrals = solvef.(param_triples, 1e-8)
     end 
 
     # println(diagIntegrals)
