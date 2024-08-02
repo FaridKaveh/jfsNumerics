@@ -1,9 +1,9 @@
 using Integrals, LinearAlgebra 
 
-f(u, p) = u[1]*u[2]*prod(p[1:2]) * prod(exp.(-u .* p))/(sum(u))^2
+f(u, p) = u[1]*u[2]*prod(p[1:2]) * exp(sum(-u .* p))/(sum(u))^2
 
 
-g(u, p)=  u[1]^2 * p[1] * prod(exp.(-u .* p))/(sum(u))^2
+g(u, p)=  u[1]^2 * p[1] * exp(sum(-u .* p))/(sum(u))^2
 
 
 #the approx functions are the LLN approximation of the expectation integrals.
@@ -16,7 +16,7 @@ function solvef(p)
     domain = (zeros(3), [Inf, Inf, Inf])
     problem = IntegralProblem(f, domain, p)
     
-    sol = solve(problem, HCubatureJL(); reltol=1e-10, abstol=1e-10)
+    sol = solve(problem, HCubatureJL(); reltol=1e-6, abstol=1e-6)
     
     return sol.u
 end 
@@ -25,7 +25,7 @@ function solveg(p)
     domain = (zeros(2), [Inf, Inf])
     problem = IntegralProblem(g, domain, p)
 
-    sol = solve(problem, HCubatureJL(); reltol=1e-10, abstol=1e-10)
+    sol = solve(problem, HCubatureJL(); reltol=1e-6, abstol=1e-6)
 
     return sol.u
 end 
@@ -94,11 +94,13 @@ function getApproxProb(n, k, l)
     end
 end 
 
-function makeProbMat(n, f)
+function makeProbMat(n, probFunc)
+
+    #probFunc is the function that computes the probabilities, it takes three arguments: n, k, l
     probMat = zeros(n-1, n-1)
     for i in 1:n-1
         for j in 1:i
-            probMat[i,j] = getProb(n, i+1, j+1)
+            probMat[i,j] = probFunc(n, i+1, j+1)
             i != j ? probMat[j,i] = probMat[i,j] : nothing
         end
     end
