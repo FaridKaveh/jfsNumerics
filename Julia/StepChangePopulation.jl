@@ -25,7 +25,40 @@ function binSearch(x, ls)
     return low
 end
 
-function logDensityStepChange(τ, c, s)
+
+function densityFlatPop(τ, c, s)
+    pushfirst!(s, 0)
+
+    n = length(s)
+
+    density = 1
+
+    for i in 2:n
+        density *= binomial(n-i+2,2)* exp(-binomial(n-i+2,2)*(s[i] - s[i-1]))
+    end 
+    
+    return density 
+end
+
+function densityFlatPop2(τ, c, s)\
+    pushfirst!(s, 0)
+
+    n = length(s)
+
+    logSummands = [binomial(n-j+2,2) for j in 2:n]
+    logSummands = log.(logSummands)
+
+    intSummands = zeros(n-1)
+
+    for j in 2:n
+        intSummands[j-1] = (s[j]-s[j-1])
+        intSummands[j-1] *= binomial(n-j+2,2)
+    end
+
+    total = sum(logSummands - intSummands)
+    return exp(total)
+end
+function densityStepChange(τ, c, s)
     
     # τ is the step change point
     # c is the intensity after τ
@@ -35,21 +68,23 @@ function logDensityStepChange(τ, c, s)
     n = length(s)
     stepPoint = binSearch(τ, s)
 
-    logSummands = log.([binomial(n-j+2,2)*(1-(1-c)*(j>=stepPoint)) for j in 2:n])
+    logSummands = [binomial(n-j+2,2)*(1-(1-c)*(j>=stepPoint)) for j in 2:n]
+    logSummands = log.(logSummands)
 
     intSummands = zeros(n-1)
     
     
-    for j in 1:n-1
-        intSummands[j] = (s[j+1]-s[j])*((j+1 < stepPoint) + c*(j>stepPoint)) + (τ-s[j] + c*(s[j+1]-τ))*(j+1 == stepPoint)
-        intSummands[j] *= binomial(n-j+1,2)
+    for j in 2:n
+        intSummands[j-1] = (s[j]-s[j-1])*((j < stepPoint) + c*(j-1>=stepPoint)) + (τ-s[j-1] + c*(s[j]-τ))*(j == stepPoint)
+        intSummands[j-1] *= binomial(n-j+2,2)
     end
 
-    return sum(logSummands) - sum(intSummands)
+    total = sum(logSummands - intSummands)
+    return exp(total)
 end
 
 #function for change of variables so that we can integrate on a hypercube
-function changeVar(τ, c, s)
+function changeVar(func, τ, c, s)
     # τ is the step change point
     # c is the intensity after τ
     # s = (s_1, s_2, ..., s_{n-1}, t_n) is a vector such that t_i = t_n * ∏_{j=i}^{n-1} s_j
@@ -57,24 +92,25 @@ function changeVar(τ, c, s)
     times = [s[end]*prod(s[j] for j in i:n-1) for i in 1:n-1]
     push!(times, s[end])
 
-    return logDensityStepChange(τ, c, times)
+    jacobian = prod([s[j]^(j-1) for j in eachindex(s)])
+
+    return func(τ, c, times)*jacobian
 end
 
-#The post factor is the jacobian of the transformation
-f(u, p) = exp(changeVar(p[1], p[2], u))*prod([u[j]^(j-1) for j in eachindex(u)])
-    
+fStepChange(u, p) = changeVar(densityStepChange, p[1], p[2], u)
 
-function solvef(n, τ, c, reltol)
+fConst(u,p) = changeVar(densityFlatPop, p[1], p[2], u)
+
+
+function solveInt(func, n, τ, c, reltol)
     lower_terminals = zeros(n)
-    upper_terminals = push!(ones(n), Inf)
+    upper_terminals = push!(ones(n-1), Inf)
     domain = (lower_terminals, upper_terminals)
 
-    problem = IntegralProblem(f, domain, [τ, c])
+    problem = IntegralProblem(func, domain, [τ, c])
 
     sol= solve(problem, HCubatureJL(); reltol=reltol)
 
     return sol.u
 end
 
-
-solvef(4, 1, 1, 1e-6)
