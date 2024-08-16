@@ -1,6 +1,7 @@
 # don't need this but adding for future compatibity, in case binomial moves from base
 using Combinatorics 
 using Integrals
+using Cubature
 
 
 function binSearch(x, ls)
@@ -55,8 +56,8 @@ function densityFlatPop2(τ, c, s)\
         intSummands[j-1] *= binomial(n-j+2,2)
     end
 
-    total = sum(logSummands - intSummands)
-    return exp(total)
+    
+    return exp(sum(logSummands - intSummands))
 end
 function densityStepChange(τ, c, s)
     
@@ -79,8 +80,8 @@ function densityStepChange(τ, c, s)
         intSummands[j-1] *= binomial(n-j+2,2)
     end
 
-    total = sum(logSummands - intSummands)
-    return exp(total)
+    
+    return exp(sum(logSummands - intSummands))
 end
 
 #function for change of variables so that we can integrate on a hypercube
@@ -97,20 +98,41 @@ function changeVar(func, τ, c, s)
     return func(τ, c, times)*jacobian
 end
 
+
 fStepChange(u, p) = changeVar(densityStepChange, p[1], p[2], u)
 
 fConst(u,p) = changeVar(densityFlatPop, p[1], p[2], u)
 
+function fStepChange_InPlace(y, u, p)
+    y[1] = changeVar(densityFlatPop2, p[1], p[2], u) 
+end 
 
-function solveInt(func, n, τ, c, reltol)
+function solveIntOOP(func, n, τ, c, reltol)
+    #OOP is Out of Place
     lower_terminals = zeros(n)
     upper_terminals = push!(ones(n-1), Inf)
     domain = (lower_terminals, upper_terminals)
 
     problem = IntegralProblem(func, domain, [τ, c])
 
-    sol= solve(problem, HCubatureJL(); reltol=reltol)
+    sol= solve(problem, CubatureJLh(); reltol=reltol)
 
     return sol.u
 end
 
+function solveIntIP(func, n, τ, s, reltol)
+
+    lower_terminals = zeros(n)
+    upper_terminals = push!(ones(n-1), Inf)
+    domain = (lower_terminals, upper_terminals)
+
+    prototype = zeros(1)
+
+    problem = IntegralProblem(IntegralFunction(func, prototype), domain, [τ, s])
+
+    sol= solve(problem, CubatureJLh(); reltol=reltol)
+
+    return sol.u
+end 
+
+    
