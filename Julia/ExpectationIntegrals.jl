@@ -1,4 +1,5 @@
 using Integrals, LinearAlgebra 
+using Cubature
 
 f(u, p) = u[1]*u[2]*prod(p[1:2]) * exp(sum(-u .* p))/(sum(u))^2
 
@@ -7,9 +8,9 @@ g(u, p)=  u[1]^2 * p[1] * exp(sum(-u .* p))/(sum(u))^2
 
 
 #the approx functions are the LLN approximation of the expectation integrals.
-f_approx(u,p) = u[1]*u[2]*prod(exp.(-u .* p[1:2]))/(sum(u)+p[3])^2
+f_approx(u,p) = u[1]*u[2]*prod(exp.(-u .* p[1:3]))/(sum(u)+p[4])^2
 
-g_approx(u,p) = u[1]^2 * prod(exp.(-u .* p[1]))/(sum(u)+p[2])^2
+g_approx(u,p) = u[1]^2 * prod(exp.(-u .* p[1:2]))/(sum(u)+p[3])^2
 
 function solvef(p, reltol)
 
@@ -32,19 +33,19 @@ end
 
 function solvef_approx(p)
 
-    domain = (zeros(2), [Inf, Inf])
+    domain = (zeros(3), [Inf, Inf, Inf])
     problem = IntegralProblem(f_approx, domain, p)
 
-    sol = solve(problem, HCubatureJL(); reltol=1e-10, abstol=1e-10)
+    sol = solve(problem, CubatureJLh(); reltol=1e-10, abstol=1e-10)
 
     return sol.u
 end 
 
 function solveg_approx(p)
-    domain = (zeros(1), [Inf])
+    domain = (zeros(2), [Inf, Inf])
     problem = IntegralProblem(g_approx, domain, p)
 
-    sol = solve(problem, HCubatureJL(); reltol=1e-10, abstol=1e-10)
+    sol = solve(problem, CubatureJLh(); reltol=1e-10, abstol=1e-10)
 
     return sol.u
 end 
@@ -54,7 +55,7 @@ get_diag(n,k,l) = 1/2 .* setdiff(collect(n:-1:2), [k,l]) .- 1/2
 Λ(n,k,l) = diagm(0 => -get_diag(n,k,l), 1 => get_diag(n,k,l)[1:end-1]);
 
 
-μ(n,k,l) = sum([1/x for x in get_diag(n,k,l)])
+μ(n,k,l) = sum([1/x for x in setdiff(collect(11:n), [k,l])])
 
 function J(n, k, l)
 
@@ -74,6 +75,38 @@ function J(n, k, l)
 
 end
 
+function Japprox(n, k, l)
+    if n ≤ 10
+        return J(n, k, l)
+    end
+
+    eig_sys = eigen(Λ(10, k, l))
+    
+    if k==l
+        param_triples = [[(k-1)/2, -eig_sys.values[i], μ(n,k,l)] for i in 1:length(eig_sys.values)]
+        diagIntegrals = solveg_approx.(param_triples)
+    else 
+        param_sets = [[(k-1)/2, (l-1)/2, -eig_sys.values[i], μ(n,k,l)] for i in 1:length(eig_sys.values)]
+        diagIntegrals = solvef_approx.(param_sets)
+    end
+
+    return (diagIntegrals, eig_sys)
+end  
+
+function α_approx(n, k, l)
+
+    if (k ≤ 10 && l ≤ 10)
+        alpha = zeros(8 + (k==l))
+    elseif (k ≤ 10 || l ≤ 10)
+        alpha = zeros(9)
+    else 
+        alpha = zeros(10)
+    end
+
+    alpha[1]=-1
+    return alpha
+end
+
 function α(n, k, l)
 
     alpha = zeros(n-3+ (k==l))
@@ -86,12 +119,10 @@ function getProb(n, k, l)
     return α(n,k,l)' * eig_sys.vectors * diagm(0 => eig_sys.values .* diagIntegrals) * inv(eig_sys.vectors)* ones(length(α(n,k,l))) 
 end
 
+
+
 function getApproxProb(n, k, l)
-    if k == l
-        return solveg_approx([(k-1)/2, μ(n,k,l)])
-    else
-        return solvef_approx([(k-1)/2, (l-1)/2, μ(n,k,l)])
-    end
+    #TODO: rewrite this
 end 
 
 function makeProbMat(n, probFunc)

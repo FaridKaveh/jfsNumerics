@@ -28,7 +28,7 @@ end
 
 
 function densityStepChange(s::AbstractVector{Float64}, p)
-    
+    #the probability density evaluated at s when there is a step change at p[1] down/up to p[2] 
     τ = p[1]
     c = p[2]
     # τ is the step change point
@@ -55,10 +55,13 @@ function densityStepChange(s::AbstractVector{Float64}, p)
 end
 
 function branchLengthRatios(s::AbstractVector{Float64}, i, j) 
+    #This is the ratio S_i*S_j/(T_{tot}^\ast)^2
+    i, j = Int(i), Int(j)
     n= length(s)
     s[n-i+1]*s[n-j+1]/(sum(s)+s[n])^2
 end 
 Integrand(u, p) = densityStepChange(u, p[1:2])*branchLengthRatios(u, p[3], p[4])
+
 
 #function for change of variables so that we can integrate on a hypercube
 function changeVar(func, s, p)
@@ -74,6 +77,8 @@ function changeVar(func, s, p)
     return func(times, p)*jacobian
 end
 
+
+IntegrandOnHypercube(u, p) = changeVar(Integrand, u, p)
 
 fStepChange(u, p) = changeVar(densityStepChange, u, p)
 
@@ -110,7 +115,7 @@ function solveIntIP(func, n, p, reltol)
 
     problem = IntegralProblem(IntegralFunction(func, prototype), domain, p)
 
-    sol= solve(problem, CubatureJLh(); reltol=reltol)
+    sol= solve(problem, VEGAS(); reltol=reltol)
 
     return sol.u
 end 
@@ -119,7 +124,7 @@ function makeCorrelMatIP(n, τ, c, reltol)
     correlMat = zeros(n-1, n-1)
     for i in 1:n-1
         for j in 1:i
-            correlMat[i,j] = solveIntIP(fBranchLengthRatios, n-1, [τ, c, i, j], reltol)[1]
+            correlMat[i,j] = solveIntIP(IntegrandOnHypercube, n-1, [τ, c, i, j], reltol)[1]
             i != j ? correlMat[j,i] = correlMat[i,j] : nothing
         end
     end
@@ -136,9 +141,9 @@ function makeProbMat(n, τ, c, reltol)
         for j in 1:i
 
             if i == n-1
-                probMat[i,j] = j == n-1 ? n^2 * correlMat[i,j] : n*(j+1)*(CorrelMat[i,j]-CorrelMat[i,j+1])
+                probMat[i,j] = j == n-1 ? n^2 * correlMat[i,j] : n*(j+1)*(correlMat[i,j]-correlMat[i,j+1])
             else 
-                probMat[i,j] = (i+1)*(j+1)*(CorrelMat[i,j]-CorrelMat[i+1,j]+CorrelMat[i+1,j+1]-CorrelMat[i+1,j])
+                probMat[i,j] = (i+1)*(j+1)*(correlMat[i,j]-correlMat[i+1,j]+correlMat[i+1,j+1]-correlMat[i,j+1])
             end 
             
             i != j ? probMat[j,i] = probMat[i,j] : nothing
@@ -148,4 +153,5 @@ function makeProbMat(n, τ, c, reltol)
     return probMat
 end
 
-ProbMat = makeProbMat(5, 1, 1/2 , 1e-6)
+ProbMat = makeProbMat(5, 1, 1 , 1e-6)
+
