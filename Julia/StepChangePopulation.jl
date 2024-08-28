@@ -74,10 +74,10 @@ function VectorIntegrand(u, p)
     for i in 1:n
         k = i >= 2 ? sum(1:i-1) : 0
         for j in 1:i
-            y[k+j] = densityStepChange(u, p[1:2])*branchLengthRatios(u, i, j)
+            y[k+j] = branchLengthRatios(u, i, j)
         end
     end 
-    return y
+    return densityStepChange(u, p[1:2])*y
 end 
 #function for change of variables so that we can integrate on a hypercube
 function changeVar(func, s, p)
@@ -94,7 +94,8 @@ end
 
 function changeVarHyperCube(func, s, p)
 
-    #s = (s_1, s_2, ..., s_{n-1}, u) is a vector such that t_n = u/(1-u) and t_i = t_n * ∏_{j=i}^{n-1} s_j 
+    #s = (s_1, s_2, ..., s_{n-1}, u) is a vector such that t_n = u/(1-u) and t_i = t_n * ∏_{j=i}^{n-1} s_j
+    # this change of variable takes the unit hypercube to {0 < t_1 < t_2 < ... < t_{n-1} < t_n < ∞}
     n = length(s)
     tn = s[end]/(1-s[end])
     times = [tn*prod(s[j] for j in i:n-1) for i in 1:n-1]
@@ -107,11 +108,15 @@ end
 
 IntegrandSemiInfinite(u, p) = changeVar(Integrand, u, p)
 
+IntegrandHyperCube(u, p) = changeVarHyperCube(Integrand, u, p)
+
 VectorIntegrandHyperCube(u,p) = changeVarHyperCube(VectorIntegrand, u, p)
 
-fStepChange(u, p) = changeVar(densityStepChange, u, p)
+StepChangeIntegrand(u, p) = changeVar(densityStepChange, u, p)
 
-function changeVarVectorIntegrand(y, u, p)
+
+
+function changeVarVectorIntegrandIP(y, u, p)
     # p[1] = τ, p[2] = c, p[3] = n
 
     y = changeVar(VectorIntegrand, u, p)
@@ -174,7 +179,7 @@ function solveIntIP_HyperCube(func, n, p, reltol)
     upper_terminals = ones(n)
     domain = (lower_terminals, upper_terminals)
 
-    prototype = zeros(Int(n*(n-1)/2+n))
+    # prototype = zeros(Int(n*(n-1)/2+n))
 
     problem = IntegralProblem(func, domain, p)
 
@@ -183,20 +188,31 @@ function solveIntIP_HyperCube(func, n, p, reltol)
     return sol.u
 end 
 
-function makeCorrelMatIP(n, τ, c, reltol)
+function makeCorrelMatIP(method, n, τ, c, reltol)
     correlMat = zeros(n-1, n-1)
+
+    if method == "VEGAS"
     for i in 1:n-1
         for j in 1:i
             correlMat[i,j] = solveIntIP_SemiInfinite(IntegrandSemiInfinite, n-1, [τ, c, i, j], reltol)[1]
             i != j ? correlMat[j,i] = correlMat[i,j] : nothing
         end
     end
+    elseif method == "CubaVEGAS"
+        vec = solveIntIP_HyperCube(VectorIntegrandHyperCube, n, [τ, c], reltol)
+        correlMat = lowerTriangularMat(n, vec)
+    else 
+        println("Method not recognized")
+    end 
+
 
     return correlMat
 end
 
-function makeProbMat(n, τ, c, reltol)
-    correlMat = makeCorrelMatIP(n, τ, c, reltol)
+
+
+function makeProbMat(method, n, τ, c, reltol)
+    correlMat = makeCorrelMatIP(method, n, τ, c, reltol)
 
     probMat = zeros(n-1, n-1)
 
@@ -216,17 +232,15 @@ function makeProbMat(n, τ, c, reltol)
     return probMat
 end
 
-retVec = solveIntIP_HyperCube(VectorIntegrandHyperCube, 2, [1,1], 1e-6)
-# function lowerTriangularMat(n)
-#     vec = ones(Int(n*(n-1)/2+n))
-#     mat = zeros(n,n)
+function lowerTriangularMat(n, vec)
+    mat = zeros(n,n)
 
-#     for i in 1:n
-#         k = i >= 2 ? sum(1:i-1) : 0
-#         for j in 1:i
-#             mat[i,j] = vec[k+j]
-#         end
-#     end 
+    for i in 1:n
+        k = i >= 2 ? sum(1:i-1) : 0
+        for j in 1:i
+            mat[i,j] = vec[k+j]
+        end
+    end 
 
-#     return mat
-# end
+    return mat
+end
