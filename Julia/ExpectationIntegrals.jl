@@ -125,7 +125,7 @@ function getApproxProb(n, k, l, reltol)
     #TODO: rewrite this
 
     if n ≤ 10
-        return getProb(n, k, l)
+        return getProb(n, k, l, reltol)
     end
     (diagIntegrals, eig_sys) = Japprox(n,k,l, reltol)
 
@@ -138,7 +138,7 @@ function makeProbMat(n, probFunc, reltol)
     probMat = zeros(n-1, n-1)
     for i in 1:n-1
         for j in 1:i
-            probMat[i,j] = probFunc(n, i+1, j+1)
+            probMat[i,j] = probFunc(n, i+1, j+1, reltol)
             i != j ? probMat[j,i] = probMat[i,j] : nothing
         end
     end

@@ -3,6 +3,7 @@ using Combinatorics
 using Integrals
 using Cubature
 using Cuba
+using MonteCarloIntegration
 
 
 
@@ -28,8 +29,42 @@ function binSearch(x, ls)
     return low
 end
 
+function densityExponentialGrowth(s, β)
+    #the probability density evaluated at s when there is exponential growth with rate β
+    # meaning that at time t in the past the population was e^{-βt} smaller than at present
+    # β is the growth rate
+    # s is the time vector
 
-function densityStepChange(s::AbstractVector{Float64}, p)
+    pushfirst!(s, 0)
+    n = length(s)
+
+    binomialCoeff = [binomial(j, 2) for j = 2:n] 
+    logSummands = log.(binomialCoeff) .+ β*s[2:end]
+    
+    expTimes = exp.(β * s)
+    intSummands = expTimes[2:end] - expTimes[1:end-1]
+    intSummands = intSummands .* binomialCoeff
+
+    # if minimum([intSummands; logSummands]) < 1e-12 || maximum([intSummands; logSummands]) > 1e12
+    #     println("intSummands =")
+    #     println(intSummands)
+    #     println("logSummands")
+    #     println(logSummands)
+    #     println("return val=")
+    #     println(exp(sum(logSummands .- intSummands)))
+    #     println("------------------------------------------------")
+    # end 
+
+    exponent = sum(intSummands .- logSummands)
+
+    
+
+    return exponent ≤ 1e16 ? exp(-exponent) : 0.0
+    
+end 
+
+
+function densityStepChange(s, p)
     #the probability density evaluated at s when there is a step change at p[1] down/up to p[2] 
     τ = p[1]
     c = p[2]
@@ -47,7 +82,7 @@ function densityStepChange(s::AbstractVector{Float64}, p)
     intSummands = zeros(n-1)
     
     
-    for j in 2:n
+    for j = 2:n
         intSummands[j-1] = (s[j]-s[j-1])*((j < stepPoint) + c*(j-1>=stepPoint)) + (τ-s[j-1] + c*(s[j]-τ))*(j == stepPoint)
         intSummands[j-1] *= binomial(n-j+2,2)
     end
@@ -71,14 +106,30 @@ function VectorIntegrand(u, p)
 
     n= length(u)
     y = zeros(Int((n*(n-1)/2+n)))
-    for i in 1:n
+    for i = 1:n
         k = i >= 2 ? sum(1:i-1) : 0
-        for j in 1:i
+        for j = 1:i
             y[k+j] = branchLengthRatios(u, i, j)
         end
     end 
     return densityStepChange(u, p[1:2])*y
 end 
+
+function VectorIntegrandExp(u, p)
+    # integrand evaluation for all pairs (i,j) in the correlation matrix
+    # p[1] = β
+
+    n= length(u)
+    y = zeros(Int((n*(n-1)/2+n)))
+    for i = 1:n
+        k = i >= 2 ? sum(1:i-1) : 0
+        for j = 1:i
+            y[k+j] = branchLengthRatios(u, i, j)
+        end
+    end 
+    return densityExponentialGrowth(u, p[1])*y
+end 
+
 #function for change of variables so that we can integrate on a hypercube
 function changeVar(func, s, p)
     
@@ -102,8 +153,8 @@ function changeVarHyperCube(func, s, p)
     push!(times, tn)
 
     jacobian = prod([s[j]^(j-1) for j in 1:n-1]) * tn^(n-1) * 1/(1-s[end])^2
-
-    return func(times, p)*jacobian
+    
+    return func(times, p) *jacobian
 end
 
 IntegrandSemiInfinite(u, p) = changeVar(Integrand, u, p)
@@ -112,29 +163,11 @@ IntegrandHyperCube(u, p) = changeVarHyperCube(Integrand, u, p)
 
 VectorIntegrandHyperCube(u,p) = changeVarHyperCube(VectorIntegrand, u, p)
 
-StepChangeIntegrand(u, p) = changeVar(densityStepChange, u, p)
+StepChangeIntegrand(u, p) = changeVarHyperCube(densityStepChange, u, p)
+
+ExponentialGrowthIntegrand(u,p) = changeVarHyperCube(densityExponentialGrowth, u, p)
 
 
-
-function changeVarVectorIntegrandIP(y, u, p)
-    # p[1] = τ, p[2] = c, p[3] = n
-
-    y = changeVar(VectorIntegrand, u, p)
-end 
-
-function fStepChange_InPlace(y, u, p)
-    # p[1] = τ, p[2] = c
-    y[1] = changeVar(densityStepChange, u, p) 
-end 
-
-function fStepChange_InPlace_Hypercube(y, u, p)
-    # p[1] = τ, p[2] = c
-    y[1] = changeVarHyperCube(fStepChange, u, p) 
-end
-
-fStepChange_OOP_Hypercube(u, p) = changeVarHyperCube(densityStepChange, u, p)
-
-Integrand_OOP_Hypercube(u, p) = changeVarHyperCube(Integrand, u, p)
 
 function fBranchLengthRatios(y, u::AbstractVector{Float64}, p)
     # p[1] = τ, p[2] = c
@@ -143,31 +176,33 @@ function fBranchLengthRatios(y, u::AbstractVector{Float64}, p)
 end
 
 
-function solveIntOOP(func, n, p, reltol)
+function solveIntOOP(func, n, p, nbins=300, ncalls=5000)
     #OOP is Out of Place
     lower_terminals = zeros(n)
-    upper_terminals = push!(ones(n-1),1)
+    upper_terminals = ones(n)
     domain = (lower_terminals, upper_terminals)
 
-    problem = IntegralProblem(func, domain, p)
+    integrand(u, p) = changeVarHyperCube(func, u, p)
 
-    sol= solve(problem, CubatureJLh(); reltol=reltol)
+    problem = IntegralProblem(integrand, domain, p)
+
+    sol= solve(problem, VEGAS(; nbins=nbins, ncalls=ncalls))
 
     return sol.u
 end
 
-function solveIntIP_SemiInfinite(func, n, p, reltol)
+function solveIntIP_CubatureJLh(func, n, p, reltol)
     #the length of the param vector p will depend on the function func
 
     lower_terminals = zeros(n)
-    upper_terminals = push!(ones(n-1), Inf)
+    upper_terminals = ones(1)
     domain = (lower_terminals, upper_terminals)
 
     prototype = zeros(1)
 
     problem = IntegralProblem(IntegralFunction(func, prototype), domain, p)
 
-    sol= solve(problem, VEGAS(; nbins=300, ncalls = 10000); reltol=reltol)
+    sol= solve(problem, CubatureJLh(); reltol=reltol)
 
     return sol.u
 end 
@@ -180,6 +215,7 @@ function solveIntIP_HyperCube(func, n, p, reltol)
     domain = (lower_terminals, upper_terminals)
 
     # prototype = zeros(Int(n*(n-1)/2+n))
+    
 
     problem = IntegralProblem(func, domain, p)
 
@@ -192,9 +228,9 @@ function makeCorrelMatIP(method, n, τ, c, reltol)
     correlMat = zeros(n-1, n-1)
 
     if method == "VEGAS"
-    for i in 1:n-1
-        for j in 1:i
-            correlMat[i,j] = solveIntIP_SemiInfinite(IntegrandSemiInfinite, n-1, [τ, c, i, j], reltol)[1]
+    for i = 1:n-1
+        for j = 1:i
+            correlMat[i,j] = solveIntIP_CubatureJLh(IntegrandSemiInfinite, n-1, [τ, c, i, j], reltol)[1]
             i != j ? correlMat[j,i] = correlMat[i,j] : nothing
         end
     end
@@ -216,8 +252,8 @@ function makeProbMat(method, n, τ, c, reltol)
 
     probMat = zeros(n-1, n-1)
 
-    for i in 1:n-1
-        for j in 1:i
+    for i = 1:n-1
+        for j = 1:i
 
             if i == n-1
                 probMat[i,j] = j == n-1 ? n^2 * correlMat[i,j] : n*(j+1)*(correlMat[i,j]-correlMat[i,j+1])
@@ -235,12 +271,13 @@ end
 function lowerTriangularMat(n, vec)
     mat = zeros(n,n)
 
-    for i in 1:n
+    for i = 1:n
         k = i >= 2 ? sum(1:i-1) : 0
-        for j in 1:i
+        for j = 1:i
             mat[i,j] = vec[k+j]
         end
     end 
 
     return mat
 end
+
