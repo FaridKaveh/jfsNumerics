@@ -58,7 +58,7 @@ function densityExponentialGrowth(s, β)
 end 
 
 
-function densityStepChange(s, p)
+function densityStepChange(s, p::NTuple{2, Real})
     #the probability density evaluated at s when there is a step change at p[1] down/up to p[2] 
     τ = p[1]
     c = p[2]
@@ -89,7 +89,7 @@ function densityStepChange(s, p)
     return exp(sum(logSummands .- intSummands))
 end
 
-function densityBottleneck(s, p::NTuple{4, Number})
+function densityBottleneck(s, p::NTuple{4, Real})
     #this is the density function for a bottleneck population histroy
     #τ1 and τ2 give the times of the stepwise changes and c1 and c2 are the levels to which the 
     #population jumps 
@@ -112,37 +112,45 @@ function densityBottleneck(s, p::NTuple{4, Number})
     logSummands = log.(logSummands)
 
     intSummands = zeros(n-1)
-    for j = 2:n
-        #there are six different scenarios for the ordering of s_j and s_{j-1} with respect to τ1 and τ2, 
-        #e.g. τ1 < s_{j-1} < s_j < τ2
+ for j = 2:n
 
-        intSummands[j-1] = (s[j] - s[j-1])*(j < stepPoint1) 
-            + c1*(s[j]-s[j-1])*(j-1 ≥ stepPoint1 && j < stepPoint2)
-            + c2*(s[j]-s[j-1])*(j-1 ≥ stepPoint2) 
-            + (c1*(τ2-s[j-1])+ c2*(s[j]- τ2))*(j-1 ≥ stepPoint1 && j-1 < stepPoint2 && j ≥ stepPoint2)
-            + ((τ1 - s[j-1])+c1*(s[j]-τ1))*(j-1 < stepPoint1 && j ≥ stepPoint1 && j < stepPoint2)
-            + ((τ1 - s[j-1])+c1*(τ2-τ1)+c2*(s[j]-τ2))*(j-1 < stepPoint1 && j ≥ stepPoint2)
+    debug_bool = [(j < stepPoint1), ((j-1 ≥ stepPoint1 && j < stepPoint2)), (j-1 ≥ stepPoint2), (j-1 < stepPoint1 && j ≥ stepPoint2), (j-1 ≥ stepPoint1 && j-1 < stepPoint2 && j ≥ stepPoint2),
+     (j-1 < stepPoint1 && j ≥ stepPoint1 && j < stepPoint2)]
+
+
+    if debug_bool[1]
+        intSummands[j-1] = (s[j] - s[j-1])
+    elseif debug_bool[2]
+        intSummands[j-1] = c1*(s[j]-s[j-1])
+    elseif debug_bool[3]
+        intSummands[j-1] = c2*(s[j]-s[j-1])
+    elseif debug_bool[4]
+        intSummands[j-1] = ((τ1 - s[j-1])+c1*(τ2-τ1)+c2*(s[j]-τ2))
+    elseif debug_bool[5]
+        intSummands[j-1] = (c1*(τ2-s[j-1])+ c2*(s[j]- τ2))
+    elseif debug_bool[6]
+        intSummands[j-1] = (τ1 - s[j-1])+c1*(s[j]-τ1)
+
+    end 
+    # intSummands[j-1] = (s[j] - s[j-1])*(j < stepPoint1) 
+    #     + c1*(s[j]-s[j-1])*(j-1 ≥ stepPoint1 && j < stepPoint2)
+    #     + c2*(s[j]-s[j-1])*(j-1 ≥ stepPoint2) + ((τ1 - s[j-1])+c1*(τ2-τ1)+c2*(s[j]-τ2))*(j-1 < stepPoint1 && j ≥ stepPoint2)
+    #     + (c1*(τ2-s[j-1])+ c2*(s[j]- τ2))*(j-1 ≥ stepPoint1 && j-1 < stepPoint2 && j ≥ stepPoint2)+ ((τ1 - s[j-1])+c1*(s[j]-τ1))*(j-1 < stepPoint1 && j ≥ stepPoint1 && j < stepPoint2)
         
-        intSummands[j-1] *= binomial(n-j+2, 2)
+    intSummands[j-1] *= binomial(n-j+2, 2)
 
-        # j == 6 ? println(((τ1 - s[j-1])+c1*(s[j]-τ1)), 
-        # " ", (j-1 < stepPoint1 && j ≥ stepPoint1 && j < stepPoint2)) : nothing
-
-        # if isnan(((τ1 - s[j-1])+c1*(s[j]-τ1)))
-        #     println("NaN argument")
-        # end
-
-        # if isnan(s[j]-s[j-1])
-        #     println(s)
-        # end
-    end
+    # Debugging output to check the conditions and values
+    # println("j: $j, intSummands[j-1]: $(intSummands[j-1])")
+    # println(debug_bool)
+    # println("-------------------------------")
+end
 
     return exp(sum(logSummands .- intSummands))
 end 
 
         
 
-function branchLengthRatios(s::AbstractVector{Float64}, i, j) 
+function branchLengthRatios(s::Vector{Float64}, i, j) 
     #This is the ratio S_i*S_j/(T_{tot}^\ast)^2
     i, j = Int(i), Int(j)
     n= length(s)
@@ -152,7 +160,7 @@ end
 IntegrandStepChange(u, p) = densityStepChange(u, p[1:2])*branchLengthRatios(u, p[3], p[4])
 IntegrandBottleNeck(u,p) = densityBottleneck(u, p[1:4]) * branchLengthRatios(u, p[5], p[6])
 
-function VectorIntegrand(u, p)
+function VectorIntegrand(u, p::NTuple)
     # integrand evaluation for all pairs (i,j) in the correlation matrix
     # p[1] = τ, p[2] = c
 
@@ -229,14 +237,16 @@ ExponentialGrowthIntegrand(u,p) = changeVarHyperCube(densityExponentialGrowth, u
 
 BottleneckIntegrand(u, p) = changeVarHyperCube(densityBottleneck, u, p)
 
-function fBranchLengthRatios(y, u::AbstractVector{Float64}, p)
+BottleneckRatios(u, p) = densityBottleneck(u, p[1:4]) * branchLengthRatios(u, p[5:end]...)
+
+function fBranchLengthRatios(y, u::AbstractVector{AbstractFloat}, p)
     # p[1] = τ, p[2] = c
     ## The last two paramers of p are the indices i and j
     y[1] = changeVar(Integrand, u, p) 
 end
 
 
-function solveIntVEGAS(func, n, p, nbins=300, ncalls=5000)
+function solveIntVEGAS(func, n, p; nbins=300, ncalls=5000)
     
     lower_terminals = zeros(n)
     upper_terminals = ones(n)
@@ -258,53 +268,34 @@ function solveIntIP_CubatureJLh(func, n, p, reltol)
     upper_terminals = ones(n)
     domain = (lower_terminals, upper_terminals)
 
-    prototype = zeros(1)
 
-    problem = IntegralProblem(IntegralFunction(func, prototype), domain, p)
+    integrand(u, p) = changeVarHyperCube(func, u, p)
+
+    problem = IntegralProblem(integrand, domain, p)
 
     sol= solve(problem, CubatureJLh(); reltol=reltol)
 
     return sol.u
 end 
 
-function solveIntCubaVegas(func, n, p, reltol)
-    #the length of the param vector p will depend on the function func
 
-    lower_terminals = zeros(n)
-    upper_terminals = ones(n)
-    domain = (lower_terminals, upper_terminals)
+function makeCorrelMatIP(density, n, params; nbins=nbins, ncalls=ncalls)
 
-    # prototype = zeros(Int(n*(n-1)/2+n))
-    
-    # integrand(u,p) = changeVarHyperCube(func, u, p)
+    integrand(u, p) = branchLengthRatios(u, p[1], p[2])*density(u, p[3:end]) 
 
-    problem = IntegralProblem(func, domain, p)
-
-    sol= solve(problem, CubaVegas(); reltol=reltol)
-
-    return sol.u
-end 
-
-function makeCorrelMatIP(method, n, τ, c, reltol)
     correlMat = zeros(n-1, n-1)
 
-    if method == "VEGAS"
     for i = 1:n-1
         for j = 1:i
-            correlMat[i,j] = solveIntVEGAS(IntegrandSemiInfinite, n-1, [τ, c, i, j], reltol)[1]
+            correlMat[i,j] = solveIntVEGAS(integrand, n-1, (i,j,params...); nbins=nbins, ncalls=ncalls)
             i != j ? correlMat[j,i] = correlMat[i,j] : nothing
         end
-    end
-    elseif method == "CubaVEGAS"
-        vec = solveIntCubaVegas(VectorIntegrandHyperCube, n, [τ, c], reltol)
-        correlMat = lowerTriangularMat(n, vec)
-    else 
-        println("Method not recognized")
     end 
-
 
     return correlMat
 end
+
+
 
 
 
@@ -342,4 +333,4 @@ function lowerTriangularMat(n, vec)
     return mat
 end
 
-solveIntIP_CubatureJLh(BottleneckIntegrand, 5, (1/2,1,2,1), 1e-6)
+# solveIntIP_CubatureJLh(BottleneckIntegrand, 3, (1/2,1,2,1), 1e-6)
