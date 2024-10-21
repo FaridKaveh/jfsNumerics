@@ -58,7 +58,7 @@ get_diag(n,k,l) = 1/2 .* setdiff(collect(n:-1:2), [k,l]) .- 1/2
 Λ(n,k,l) = diagm(0 => -get_diag(n,k,l), 1 => get_diag(n,k,l)[1:end-1]);
 
 
-μ(n,k,l) = sum([1/x for x in setdiff(collect(11:n), [k,l])])
+μ(n, m, k,l) = sum([1/x for x in setdiff(collect(m:n), [k,l])])
 
 function J(n, k, l, reltol=1e-8)
 
@@ -78,29 +78,32 @@ function J(n, k, l, reltol=1e-8)
 
 end
 
-function Japprox(n, k, l, reltol=1e-8)
+function Japprox(n, m, k, l, reltol=1e-8)
+
+    #n is the number of samples 
+    #m is the level to truncate the integration
    
-    eig_sys = eigen(Λ(10, k, l))
+    eig_sys = eigen(Λ(m, k, l))
     
     if k==l
-        param_triples = [[(k-1)/2, -eig_sys.values[i], μ(n,k,l)] for i in 1:length(eig_sys.values)]
+        param_triples = [[(k-1)/2, -eig_sys.values[i], μ(n, m, k,l)] for i in 1:length(eig_sys.values)]
         diagIntegrals = solveg_approx.(param_triples, reltol)
     else 
-        param_sets = [[(k-1)/2, (l-1)/2, -eig_sys.values[i], μ(n,k,l)] for i in 1:length(eig_sys.values)]
+        param_sets = [[(k-1)/2, (l-1)/2, -eig_sys.values[i], μ(n, m, k,l)] for i in 1:length(eig_sys.values)]
         diagIntegrals = solvef_approx.(param_sets, reltol)
     end
 
     return (diagIntegrals, eig_sys)
 end  
 
-function α_approx(n, k, l)
-
-    if (k ≤ 10 && l ≤ 10)
-        alpha = zeros(7 + (k==l))
-    elseif (k ≤ 10 || l ≤ 10)
-        alpha = zeros(8)
+function α_approx(m, k, l)
+    # m is not the sample size, its the level where integration is truncated
+    if (k ≤ m && l ≤ m)
+        alpha = zeros(m - 3 + (k==l))
+    elseif (k ≤ m || l ≤ m)
+        alpha = zeros(m-2)
     else 
-        alpha = zeros(9)
+        alpha = zeros(m-1)
     end
 
     alpha[1]=-1
@@ -121,27 +124,42 @@ end
 
 
 
-function getApproxProb(n, k, l, reltol)
+function getApproxProb(n, m, k, l, reltol)
     #TODO: rewrite this
 
+    #n is the number of samples 
+    #m is the level to truncate the integration
     if n ≤ 10
         return getProb(n, k, l, reltol)
     end
-    (diagIntegrals, eig_sys) = Japprox(n,k,l, reltol)
+    (diagIntegrals, eig_sys) = Japprox(n, m, k,l, reltol)
 
-    return α_approx(n, k, l)' * eig_sys.vectors * diagm(0 => eig_sys.values .* diagIntegrals) * inv(eig_sys.vectors)* ones(length(α_approx(n,k,l)))
+    return α_approx(m, k, l)' * eig_sys.vectors * diagm(0 => eig_sys.values .* diagIntegrals) * inv(eig_sys.vectors)* ones(length(α_approx(m,k,l)))
 end 
 
-function makeProbMat(n, probFunc, reltol)
+function makeProbMat(n, reltol, approx; truncation_level = 10)
 
     #probFunc is the function that computes the probabilities, it takes three arguments: n, k, l
-    probMat = zeros(n-1, n-1)
-    for i in 1:n-1
-        for j in 1:i
-            probMat[i,j] = probFunc(n, i+1, j+1, reltol)
-            i != j ? probMat[j,i] = probMat[i,j] : nothing
+
+    if !approx
+        probMat = zeros(n-1, n-1)
+        for i = 1:n-1
+            for j = 1:i
+                probMat[i,j] = getProb(n, i+1, j+1, reltol)
+                i != j ? probMat[j,i] = probMat[i,j] : nothing
+            end
         end
-    end
+
+    else
+        probMat = zeros(n-1,n-1)
+        for i = 1:n-1
+            for j = 1:i
+                probMat[i,j] = getApproxProb(n, truncation_level, i+1, j+1, reltol)
+                i != j ? probMat[j, i] = probMat[i, j] : nothing
+            end 
+        end 
+    end 
+
 
     return probMat
 end
