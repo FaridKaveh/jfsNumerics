@@ -3,7 +3,7 @@ using Cubature
 
 
 PI = 3.14159265358979323846
-
+setprecision(100)
 f(u, p) = u[1]*u[2]*prod(p[1:2]) * exp(sum(-u .* p))/(sum(u))^2
 
 
@@ -58,7 +58,7 @@ get_diag(n,k,l) = 1/2 .* setdiff(collect(n:-1:2), [k,l]) .- 1/2
 Λ(n,k,l) = diagm(0 => -get_diag(n,k,l), 1 => get_diag(n,k,l)[1:end-1]);
 
 
-μ(n, m, k,l) = sum([1/x for x in setdiff(collect(m:n), [k,l])])
+μ(n, m, k,l) = sum([2/(x-1) for x in setdiff(collect(m:n), [k,l])])
 
 function J(n, k, l, reltol=1e-8)
 
