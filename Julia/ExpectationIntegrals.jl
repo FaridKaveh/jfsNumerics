@@ -195,4 +195,3 @@ function ratioCorrelation(n, i, j)
     return calculateExpectation(x -> x[i-1]*x[j-1], n-1)
 end 
 
-# ProbMat = makeProbMat(11, getApproxProb) 
