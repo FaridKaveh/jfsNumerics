@@ -5,8 +5,11 @@ using Cubature
 using Cuba
 using MonteCarloIntegration
 using ArgCheck
+using IterTools
 
 
+
+Heaviside(t,τ) = t > τ ? 1 : 0
 
 function binSearch(x, ls)
     # binary search for x in ls
@@ -30,6 +33,9 @@ function binSearch(x, ls)
     return low
 end
 
+
+
+
 function densityExponentialGrowth(s, β)
     #the probability density evaluated at s when there is exponential growth with rate β
     # meaning that at time t in the past the population was e^{-βt} smaller than at present
@@ -46,12 +52,12 @@ function densityExponentialGrowth(s, β)
     
     expTimes = exp.(BigFloat(β) * s)
     intSummands = expTimes[2:end] - expTimes[1:end-1]
-    intSummands = intSummands .* binomialCoeff
+    intSummands = (1/β * intSummands) .* binomialCoeff
 
     exponent = sum(intSummands .- logSummands)
 
     
-
+    # next line is to prevent overflow errors
     # return exponent ≤ 1e16 ? exp(-exponent) : 0.0
     return exp(-exponent)
     
@@ -117,7 +123,7 @@ function densityBottleneck(s, p::NTuple{4, Real})
     debug_bool = [(j < stepPoint1), ((j-1 ≥ stepPoint1 && j < stepPoint2)), (j-1 ≥ stepPoint2), (j-1 < stepPoint1 && j ≥ stepPoint2), (j-1 ≥ stepPoint1 && j-1 < stepPoint2 && j ≥ stepPoint2),
      (j-1 < stepPoint1 && j ≥ stepPoint1 && j < stepPoint2)]
 
-    # I don't know why but this code does not work if I write it as one single line
+    # I don't know why but this code does not work if I write it as one single line, hence leave it alone
     if debug_bool[1]
         intSummands[j-1] = (s[j] - s[j-1])
     elseif debug_bool[2]
@@ -132,11 +138,7 @@ function densityBottleneck(s, p::NTuple{4, Real})
         intSummands[j-1] = (τ1 - s[j-1])+c1*(s[j]-τ1)
 
     end 
-    # intSummands[j-1] = (s[j] - s[j-1])*(j < stepPoint1) 
-    #     + c1*(s[j]-s[j-1])*(j-1 ≥ stepPoint1 && j < stepPoint2)
-    #     + c2*(s[j]-s[j-1])*(j-1 ≥ stepPoint2) + ((τ1 - s[j-1])+c1*(τ2-τ1)+c2*(s[j]-τ2))*(j-1 < stepPoint1 && j ≥ stepPoint2)
-    #     + (c1*(τ2-s[j-1])+ c2*(s[j]- τ2))*(j-1 ≥ stepPoint1 && j-1 < stepPoint2 && j ≥ stepPoint2)+ ((τ1 - s[j-1])+c1*(s[j]-τ1))*(j-1 < stepPoint1 && j ≥ stepPoint1 && j < stepPoint2)
-        
+
     intSummands[j-1] *= binomial(n-j+2, 2)
 
 end
@@ -144,13 +146,75 @@ end
     return exp(sum(logSummands .- intSummands))
 end 
 
-        
+function marginalDensityExponential(s::Real, β::Real, n::Integer, k::Integer)
+    #This is the marginal density of the time S_k (2 <= k <= n) under an exponential 
+    #population growth history with rate β
+    
+    function a_coeff(j::Integer) 
+        if k == n && j == n
+            return 1
+        end 
+        iterable = IterTools.filter(i -> i != j, k:n)
 
+        coeff = prod(binomial(l, 2)/(binomial(l,2)-binomial(j,2)) for l=iterable)
+        
+        return coeff
+    end
+
+    density = 0
+    for j=k:n
+        density += a_coeff(j)*binomial(j,2)*exp(-binomial(j,2)*1/β*(exp(β*s)-1)+β*s)
+    end
+
+    return density
+end 
+
+function marginalDensityBottleneck(s::Real, τ1::Real, τ2::Real, c1::Real, c2::Real, n::Integer, k::Integer)
+    #This is the marginal density of the time S_k (2 <= k <= n) under a bottleneck population history
+    #with bottleneck times τ1 and τ2 and bottleneck levels c1 and c2
+    
+    @argcheck τ1 < τ2
+
+    function a_coeff(j::Integer) 
+        if k == n && j == n
+            return 1
+        end 
+        iterable = IterTools.filter(i -> i != j, k:n)
+
+        coeff = prod(binomial(l, 2)/(binomial(l,2)-binomial(j,2)) for l=iterable)
+        
+        return coeff
+    end
+
+    intensity = 1 + (c1-1)*Heaviside(s, τ1) - (c1-c2)*Heaviside(s, τ2)
+    region1 = s ≤ τ1
+    region2 = (s > τ1 && s ≤ τ2 )
+    region3 = s > τ2
+    density = 0
+    for j=k:n
+        density += a_coeff(j)*binomial(j,2)*intensity*exp(-binomial(j,2)*(
+            region1*s + region2*(τ1 + c1*(s-τ1))+ region3*(τ1 + c1*(τ2-τ1) + c2*(s-τ2))
+            )
+        )
+    end 
+
+    return density
+end 
 function branchLengthRatios(s::Vector{Float64}, i, j) 
     #This is the ratio S_i*S_j/(T_{tot}^\ast)^2
+    #note that the indexing in the code is different to indexing in theory 
+    #so that the vector of times [S_2, S_3, ..., S_n]
+    #is represented in the code as [S_n, S_{n-1},ldots, S_2] 
     i, j = Int(i), Int(j)
     n= length(s)
-    s[n-i+1]*s[n-j+1]/(sum(s)+s[n])^2
+    return s[n-i+1]*s[n-j+1]/(sum(s)+s[n])^2
+end 
+
+function singleBranchLengthRations(s::Vector{Float64}, i)
+    #This is the ratio S_i/(T_{tot}^\ast)
+    i = Int(i)
+    
+    return s[end-i+1]/(sum(s)+s[end])
 end 
 
 IntegrandStepChange(u, p) = densityStepChange(u, p[1:2])*branchLengthRatios(u, p[3], p[4])
@@ -221,17 +285,6 @@ function changeVarHyperCube(func, s, p)
     return func(times, p) *jacobian
 end
 
-# IntegrandSemiInfinite(u, p) = changeVar(Integrand, u, p)
-
-# IntegrandHyperCube(u, p) = changeVarHyperCube(Integrand, u, p)
-
-# VectorIntegrandHyperCube(u,p) = changeVarHyperCube(VectorIntegrand, u, p)
-
-# StepChangeIntegrand(u, p) = changeVarHyperCube(densityStepChange, u, p)
-
-# ExponentialGrowthIntegrand(u,p) = changeVarHyperCube(densityExponentialGrowth, u, p)
-
-# BottleneckIntegrand(u, p) = changeVarHyperCube(densityBottleneck, u, p)
 
 BottleneckRatios(u, p) = densityBottleneck(u, p[1:4]) * branchLengthRatios(u, p[5:end]...)
 
@@ -274,6 +327,18 @@ function solveIntIP_CubatureJLh(func, n, p, reltol)
     return sol.u
 end 
 
+function solveInt_OneDimensional(func, p, reltol)
+
+    domain = (0, Inf)
+
+    integrand(u,p) = func(u, p...)
+    problem = IntegralProblem(integrand, domain, p)
+
+    sol = solve(problem, HCubatureJL(); reltol=reltol)
+
+    return sol.u
+end 
+    
 
 function makeCorrelMatIP(density, n, params; nbins=300, ncalls=5000)
 
