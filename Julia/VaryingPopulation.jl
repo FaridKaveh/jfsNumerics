@@ -220,6 +220,8 @@ end
 IntegrandStepChange(u, p) = densityStepChange(u, p[1:2])*branchLengthRatios(u, p[3], p[4])
 IntegrandBottleNeck(u,p) = densityBottleneck(u, p[1:4]) * branchLengthRatios(u, p[5], p[6])
 
+univariateIntegrandBottleneck(u, p) = densityBottleneck(u, p[1:4])*singleBranchLengthRations(u, p[5])
+
 function VectorIntegrand(u, p::NTuple)
     # integrand evaluation for all pairs (i,j) in the correlation matrix
     # p[1] = τ, p[2] = c

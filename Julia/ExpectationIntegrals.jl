@@ -3,11 +3,13 @@ using Cubature
 
 
 PI = 3.14159265358979323846
-setprecision(100)
+setprecision(300)
 f(u, p) = u[1]*u[2]*prod(p[1:2]) * exp(sum(-u .* p))/(sum(u))^2
 
 
 g(u, p)=  u[1]^2 * p[1] * exp(sum(-u .* p))/(sum(u))^2
+
+marginal_f(u, p) = u[1]*p[1]*exp(sum(-u .* p))/sum(u)
 
 
 #the approx functions are the LLN approximation of the expectation integrals.
