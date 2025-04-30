@@ -1,4 +1,4 @@
-using Integrals, LinearAlgebra 
+using Integrals, LinearAlgebra, QuadGK
 using Cubature
 
 
@@ -55,6 +55,32 @@ function solveg_approx(p, reltol)
     return sol.u
 end 
 
+# ——— 1D QuadGK wrappers with domain transform
+# transform t in [0,1] → u = t/(1-t) in [0,∞), du = dt/(1-t)^2
+function quad1d_inf(func, reltol)
+    f_transformed(t) = func(t/(1-t)) / (1 - t)^2
+    # use QuadGK: returns (value, err)
+    val, err = quadgk(f_transformed, 0.0, 1.0; rtol=reltol)
+    return val
+end
+
+function solveg_bigf(p::AbstractVector{<:Real}, reltol::Real)
+    # 2D integral via nested quad1d_inf
+    f2(u1)  = quad1d_inf(u2 -> g_approx((u1, u2), p), reltol)
+    result  = quad1d_inf(u1 -> f2(u1), reltol)
+return result
+
+end
+
+function solvef_bigf(p::AbstractVector{<:Real}, reltol::Real)
+    # 3D integral via nested quad1d_inf
+    f3(u1, u2) = quad1d_inf(u3 -> f_approx((u1, u2, u3), p), reltol)
+    f2(u1)     = quad1d_inf(u2 -> f3(u1, u2),      reltol)
+    result     = quad1d_inf(u1 -> f2(u1),          reltol)
+    return result
+
+end
+
 
 get_diag(n,k,l) = 1/2 .* setdiff(collect(n:-1:2), [k,l]) .- 1/2
 Λ(n,k,l) = diagm(0 => -get_diag(n,k,l), 1 => get_diag(n,k,l)[1:end-1]);
@@ -89,10 +115,10 @@ function Japprox(n, m, k, l, reltol=1e-8)
     
     if k==l
         param_triples = [[(k-1)/2, -eig_sys.values[i], μ(n, m, k,l)] for i in 1:length(eig_sys.values)]
-        diagIntegrals = solveg_approx.(param_triples, reltol)
+        diagIntegrals = solveg_bigf.(param_triples, reltol)
     else 
         param_sets = [[(k-1)/2, (l-1)/2, -eig_sys.values[i], μ(n, m, k,l)] for i in 1:length(eig_sys.values)]
-        diagIntegrals = solvef_approx.(param_sets, reltol)
+        diagIntegrals = solvef_bigf.(param_sets, reltol)
     end
 
     return (diagIntegrals, eig_sys)
